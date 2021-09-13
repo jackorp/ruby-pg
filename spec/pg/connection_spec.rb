@@ -107,13 +107,12 @@ describe PG::Connection do
 		end
 
 		it "can create a connection option string from an option string and a hash" do
-			optstring = described_class.parse_connect_args( 'dbname=original', :user => 'jrandom',
-					'host' => 'www.ruby-lang.org,nonexisting-domaiiin.xyz,localhost' )
+			optstring = described_class.parse_connect_args( 'dbname=original', :user => 'jrandom', 'host' => 'localhost' )
 
 			expect( optstring ).to be_a( String )
 			expect( optstring ).to match( /(^|\s)dbname=original/ )
 			expect( optstring ).to match( /(^|\s)user='jrandom'/ )
-			expect( optstring ).to match( /(^|\s)hostaddr='\d+\.\d+\.\d+\.\d+,,(::1|127\.0\.0\.1)'/ )
+			expect( optstring ).to match( /(^|\s)hostaddr='(::1|127.0.0.1)'/ )
 		end
 
 		it "escapes single quotes and backslashes in connection parameters" do
@@ -124,7 +123,7 @@ describe PG::Connection do
 
 		let(:uri) { 'postgresql://user:pass@pgsql.example.com:222/db01?sslmode=require&hostaddr=4.3.2.1' }
 
-		it "accepts an URI" do
+		it "can connect using a URI" do
 			string = described_class.parse_connect_args( uri )
 
 			expect( string ).to be_a( String )
@@ -138,31 +137,34 @@ describe PG::Connection do
 			expect( string ).to match( %r{\?.*sslmode=require} )
 		end
 
-		it "accepts an URI and adds parameters from hash" do
-			string = described_class.parse_connect_args( uri + "&fallback_application_name=testapp", :connect_timeout => 2 )
+		it "can create a connection URI from a URI and a hash" do
+			string = described_class.parse_connect_args( uri, :connect_timeout => 2 )
 
 			expect( string ).to be_a( String )
 			expect( string ).to match( %r{^postgresql://user:pass@pgsql.example.com:222/db01\?} )
-			expect( string ).to match( %r{\?sslmode=require&} )
-			expect( string ).to match( %r{\?.*&fallback_application_name=testapp&} )
-			expect( string ).to match( %r{\?.*&connect_timeout=2$} )
+			expect( string ).to match( %r{\?.*sslmode=require} )
+			expect( string ).to match( %r{\?.*connect_timeout=2} )
 		end
 
-		it "accepts an URI and adds hostaddr" do
-			uri = 'postgresql://www.ruby-lang.org,nonexisting-domaiiin.xyz,localhost'
-			string = described_class.parse_connect_args( uri )
+		it "can create a connection URI from a URI and prefers the hash" do
+			string = described_class.parse_connect_args( uri,
+				:user => 'a',
+				:password => 'b',
+				:host => 'localhost',
+				:port => 555,
+				:dbname => 'x' )
 
 			expect( string ).to be_a( String )
-			expect( string ).to match( %r{^postgresql://www.ruby-lang.org,nonexisting-domaiiin.xyz,localhost\?hostaddr=\d+\.\d+\.\d+\.\d+%2C%2C(%3A%3A1|127\.0\.0\.1)} )
+			expect( string ).to match( %r{^postgresql://\?} )
+			expect( string ).to match( %r{\?.*user=a} )
+			expect( string ).to match( %r{\?.*password=b} )
+			expect( string ).to match( %r{\?.*host=localhost} )
+			expect( string ).to match( %r{\?.*port=555} )
+			expect( string ).to match( %r{\?.*dbname=x} )
+			expect( string ).to match( %r{\?.*hostaddr=(%3A%3A1|127.0.0.1)} )
 		end
 
-		it "accepts an URI and adds proper hostaddr" do
-			uri = 'postgresql://user:pass@192.168.11.123'
-			string = described_class.parse_connect_args( uri )
-			expect( string ).to match( %r{\?.*hostaddr=192.168.11.123&} )
-		end
-
-		it "accepts an URI with a non-standard domain socket directory" do
+		it "can create a connection URI with a non-standard domain socket directory" do
 			string = described_class.parse_connect_args( 'postgresql://%2Fvar%2Flib%2Fpostgresql/dbname' )
 
 			expect( string ).to be_a( String )
@@ -191,7 +193,7 @@ describe PG::Connection do
 			expect( string ).to match( %r{(^|\s)host=localhost} )
 			expect( string ).to match( %r{(^|\s)port=555} )
 			expect( string ).to match( %r{(^|\s)dbname=test} )
-			expect( string ).to match( %r{(^|\s)hostaddr='(::1|127\.0\.0\.1)'} )
+			expect( string ).to match( %r{(^|\s)hostaddr='(::1|127.0.0.1)'} )
 		end
 
 		it "sets the fallback_application_name on new connections" do
@@ -1456,8 +1458,8 @@ EOT
 			sleep 0.1
 		end
 		serv.close
-		expect{ conn.consume_input }.to raise_error(PG::ConnectionBad, /server closed the connection unexpectedly/)
-		expect{ conn.consume_input }.to raise_error(PG::ConnectionBad, /can't get socket descriptor|connection not open/)
+		expect{ conn.block }.to raise_error(PG::ConnectionBad, /server closed the connection unexpectedly/)
+		expect{ conn.block }.to raise_error(PG::ConnectionBad, /can't get socket descriptor|connection not open/)
 	end
 
 	it "calls the block supplied to wait_for_notify with the notify payload if it accepts " +
